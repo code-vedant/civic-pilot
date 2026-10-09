@@ -1,7 +1,98 @@
+
 .civicpilot-spotlight {
-  outline: 3px solid #000 !important;
+  outline: 3px solid #f59e0b !important;
   outline-offset: 4px !important;
-  box-shadow: 0 0 0 6px rgba(0,0,0,.12), 0 0 25px rgba(0,0,0,.15) !important;
+
+  box-shadow:
+    0 0 0 6px rgba(245, 158, 11, 0.16),
+    0 0 24px rgba(245, 158, 11, 0.4) !important;
+
   position: relative !important;
   z-index: 2147483646 !important;
+
+  animation: civicpilot-spotlight-pulse 1.2s ease-in-out 2;
+  transition:
+    outline-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+@keyframes civicpilot-spotlight-pulse {
+  0%,
+  100% {
+    outline-color: #f59e0b;
+    box-shadow:
+      0 0 0 4px rgba(245, 158, 11, 0.12),
+      0 0 12px rgba(245, 158, 11, 0.2);
+  }
+
+  50% {
+    outline-color: #d97706;
+    box-shadow:
+      0 0 0 8px rgba(245, 158, 11, 0.2),
+      0 0 30px rgba(245, 158, 11, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .civicpilot-spotlight {
+    animation: none;
+  }
+}
+
+
+.civicpilot-autofill-popup {
+  position: fixed;
+  z-index: 2147483647;
+  width: min(300px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #d4d4d4;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #171717;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+
+.civicpilot-autofill-title {
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.civicpilot-autofill-preview {
+  overflow-wrap: anywhere;
+  max-height: 80px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid #e5e5e5;
+  border-radius: 5px;
+  background: #fafafa;
+}
+
+.civicpilot-autofill-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.civicpilot-autofill-fill,
+.civicpilot-autofill-close {
+  padding: 7px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.civicpilot-autofill-fill {
+  border: 1px solid #171717;
+  background: #171717;
+  color: #ffffff;
+}
+
+.civicpilot-autofill-close {
+  border: 1px solid #d4d4d4;
+  background: #ffffff;
+  color: #171717;
 }

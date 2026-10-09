@@ -46,3 +46,33 @@ export interface CopilotResponse {
   error?: string;
   actions?: unknown[];
 }
+
+export interface SavedFormData {
+  id: string;
+  label: string;
+  value: string;
+
+  // Match the field on portals that use stable identifiers.
+  fieldIds: string[];
+  fieldNames: string[];
+
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AutofillFieldRequest {
+  id: string;
+  name: string;
+  label: string;
+  type: string;
+}
+
+export interface AutofillMatchResponse {
+  success: boolean;
+  match?: {
+    id: string;
+    label: string;
+    value: string;
+  };
+  reason?: string;
+}

@@ -16,6 +16,7 @@
     "dotenv": "latest",
     "express": "latest",
     "express-rate-limit": "latest",
+    "openai": "^7.31.0",
     "pg": "latest",
     "zod": "latest"
   },

@@ -405,10 +405,19 @@ export default function ChatThread() {
           });
 
           if (result.success && result.answer) {
+            console.log("[CivicPilot] Raw backend response:", result);
+            console.log("[CivicPilot] Answer length:", result.answer.length);
+            console.log(
+              "[CivicPilot] Last 100 characters:",
+              result.answer.slice(-100)
+            );
+          
             success = true;
             actionType = "guidance";
             answer = result.answer;
-          } else {
+          }
+
+          else {
             answer =
               result.error ||
               "AI guidance is temporarily unavailable. Please try again.";
