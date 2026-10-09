@@ -1,0 +1,7 @@
+.civicpilot-spotlight {
+  outline: 3px solid #000 !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 6px rgba(0,0,0,.12), 0 0 25px rgba(0,0,0,.15) !important;
+  position: relative !important;
+  z-index: 2147483646 !important;
+}
