@@ -4,16 +4,13 @@
   outline-offset: 4px !important;
 
   box-shadow:
-    0 0 0 6px rgba(245, 158, 11, 0.16),
-    0 0 24px rgba(245, 158, 11, 0.4) !important;
+    0 0 0 6px rgba(245, 158, 11, 0.20),
+    0 0 24px rgba(245, 158, 11, 0.55) !important;
 
   position: relative !important;
   z-index: 2147483646 !important;
 
-  animation: civicpilot-spotlight-pulse 1.2s ease-in-out 2;
-  transition:
-    outline-color 180ms ease,
-    box-shadow 180ms ease;
+  animation: civicpilot-spotlight-pulse 1s ease-in-out 2;
 }
 
 @keyframes civicpilot-spotlight-pulse {
@@ -21,15 +18,15 @@
   100% {
     outline-color: #f59e0b;
     box-shadow:
-      0 0 0 4px rgba(245, 158, 11, 0.12),
-      0 0 12px rgba(245, 158, 11, 0.2);
+      0 0 0 4px rgba(245, 158, 11, 0.14),
+      0 0 12px rgba(245, 158, 11, 0.25);
   }
 
   50% {
     outline-color: #d97706;
     box-shadow:
-      0 0 0 8px rgba(245, 158, 11, 0.2),
-      0 0 30px rgba(245, 158, 11, 0.5);
+      0 0 0 8px rgba(245, 158, 11, 0.25),
+      0 0 30px rgba(245, 158, 11, 0.65);
   }
 }
 
@@ -40,59 +37,55 @@
 }
 
 
+/* The popup is injected into the page by the content script. */
 .civicpilot-autofill-popup {
-  position: fixed;
-  z-index: 2147483647;
-  width: min(300px, calc(100vw - 16px));
-  box-sizing: border-box;
-  padding: 12px;
-  border: 1px solid #d4d4d4;
-  border-radius: 10px;
-  background: #ffffff;
-  color: #171717;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-  font-family: Arial, sans-serif;
-  font-size: 12px;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  box-sizing: border-box !important;
+  width: min(320px, calc(100vw - 16px)) !important;
+  padding: 12px !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22) !important;
+  font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
 .civicpilot-autofill-title {
-  margin-bottom: 8px;
-  font-weight: 700;
+  margin-bottom: 6px !important;
+  font-weight: 700 !important;
+  overflow-wrap: anywhere !important;
 }
 
 .civicpilot-autofill-preview {
-  overflow-wrap: anywhere;
-  max-height: 80px;
-  overflow-y: auto;
-  margin-bottom: 12px;
-  padding: 8px;
-  border: 1px solid #e5e5e5;
-  border-radius: 5px;
-  background: #fafafa;
+  margin-bottom: 10px !important;
+  color: #374151 !important;
+  overflow-wrap: anywhere !important;
+  white-space: pre-wrap !important;
 }
 
 .civicpilot-autofill-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
 }
 
-.civicpilot-autofill-fill,
-.civicpilot-autofill-close {
-  padding: 7px 12px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 12px;
+.civicpilot-autofill-actions button {
+  cursor: pointer !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 6px !important;
+  padding: 6px 10px !important;
+  font: inherit !important;
 }
 
 .civicpilot-autofill-fill {
-  border: 1px solid #171717;
-  background: #171717;
-  color: #ffffff;
+  background: #111827 !important;
+  color: #ffffff !important;
+  border-color: #111827 !important;
 }
 
 .civicpilot-autofill-close {
-  border: 1px solid #d4d4d4;
-  background: #ffffff;
-  color: #171717;
+  background: #ffffff !important;
+  color: #111827 !important;
 }

@@ -17,7 +17,7 @@ const INSTRUCTIONS = `
 You are CivicPilot, a helpful assistant that simplifies Indian
 government portals for citizens.
 
-Provide accurate, clear, concise and complete guidance.
+Provide accurate, clear, concise and complete guidance based on current site portal which is provided in the prompt.
 
 Formatting requirements:
 - Return valid Markdown, not HTML.
@@ -41,12 +41,16 @@ export async function generateWithOpenAI(
     throw new Error("OpenAI fallback is not configured");
   }
 
+  console.log(prompt);
+  
+
   const response = await client.responses.create({
     model: MODEL,
     instructions: INSTRUCTIONS,
     input: prompt,
     max_output_tokens: 1500
   });
+
 
   const answer = response.output_text?.trim();
 

@@ -1,3 +1,4 @@
+
 import type { DetectedField } from "./types";
 
 type FormElement =
@@ -20,20 +21,16 @@ const SENSITIVE_TERMS = [
 ];
 
 const SYNONYMS: Record<string, string[]> = {
-  dob: ["date of birth", "birth date", "dob"],
-  "date of birth": ["date of birth", "birth date", "dob"],
+  dob: ["dob", "date of birth", "birth date"],
+  "date of birth": ["dob", "date of birth", "birth date"],
   state: ["state"],
   district: ["district"],
-  pincode: ["pin code", "postal code", "pincode", "zip code"],
-  "pin code": ["pin code", "postal code", "pincode", "zip code"],
-  aadhaar: ["aadhaar", "aadhar", "uid"],
-  aadhar: ["aadhaar", "aadhar", "uid"],
+  pincode: ["pincode", "pin code", "postal code", "zip code"],
+  "pin code": ["pincode", "pin code", "postal code", "zip code"],
   gender: ["gender", "sex"],
-  mobile: ["mobile number", "mobile", "phone number"],
+  mobile: ["mobile", "mobile number", "phone number"],
   email: ["email", "email address"],
-  name: ["full name", "applicant name", "name"],
-  "father name": ["father name", "father's name"],
-  "mother name": ["mother name", "mother's name"]
+  name: ["name", "full name", "applicant name"]
 };
 
 const normalize = (value: string) =>
@@ -45,39 +42,36 @@ const normalize = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-function isFormElement(el: Element): el is FormElement {
+function isFormElement(element: Element): element is FormElement {
   return (
-    el instanceof HTMLInputElement ||
-    el instanceof HTMLSelectElement ||
-    el instanceof HTMLTextAreaElement
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement
   );
 }
 
-function isVisible(el: FormElement): boolean {
-  const style = getComputedStyle(el);
+function isVisible(element: FormElement): boolean {
+  const style = getComputedStyle(element);
 
   return (
-    el.getClientRects().length > 0 &&
+    element.getClientRects().length > 0 &&
     style.display !== "none" &&
     style.visibility !== "hidden" &&
-    style.opacity !== "0" &&
-    !el.disabled &&
-    !el.readOnly
+    style.opacity !== "0"
   );
 }
 
-function getLabel(el: FormElement): string {
-  // Native labels, including labels connected to the input by "for".
-  const labels = el.labels
-    ? Array.from(el.labels)
+function getLabel(element: FormElement): string {
+  const nativeLabels = element.labels
+    ? Array.from(element.labels)
         .map(label => label.innerText || label.textContent || "")
         .join(" ")
+        .trim()
     : "";
 
-  if (labels.trim()) return labels.trim();
+  if (nativeLabels) return nativeLabels;
 
-  // Accessible name from aria-labelledby.
-  const labelledBy = el.getAttribute("aria-labelledby");
+  const labelledBy = element.getAttribute("aria-labelledby");
 
   if (labelledBy) {
     const text = labelledBy
@@ -89,61 +83,48 @@ function getLabel(el: FormElement): string {
     if (text) return text;
   }
 
-  const ariaLabel = el.getAttribute("aria-label");
+  const ariaLabel = element.getAttribute("aria-label");
   if (ariaLabel?.trim()) return ariaLabel.trim();
 
-  const placeholder = el.getAttribute("placeholder");
+  const placeholder = element.getAttribute("placeholder");
   if (placeholder?.trim()) return placeholder.trim();
 
-  // Common government portal layout: label text immediately before input.
-  const parent = el.parentElement;
+  const parent = element.parentElement;
+  const nearbyLabel = parent?.querySelector(
+    ":scope > label, :scope > span, :scope > p"
+  );
 
-  if (parent) {
-    const label = parent.querySelector(
-      ":scope > label, :scope > span, :scope > p"
-    );
+  const nearbyText = nearbyLabel?.textContent?.trim();
 
-    const text = label?.textContent?.trim();
-
-    if (text && text.length <= 120) return text;
-  }
-
-  return "";
+  return nearbyText && nearbyText.length <= 120 ? nearbyText : "";
 }
 
 function isSensitive(
-  el: FormElement,
+  element: FormElement,
   label: string,
   name: string,
-  id: string
+  id: string,
+  type: string
 ): boolean {
-  const type =
-    el instanceof HTMLInputElement
-      ? el.type.toLowerCase()
-      : el.tagName.toLowerCase();
-
   if (
     ["password", "hidden", "file", "submit", "reset", "button", "image"]
-      .includes(type)
+      .includes(type.toLowerCase())
   ) {
     return true;
   }
 
-  const searchable = normalize(
-    [
-      label,
-      name,
-      id,
-      el.getAttribute("autocomplete") || "",
-      el.getAttribute("aria-label") || "",
-      el.getAttribute("placeholder") || ""
-    ].join(" ")
-  );
+  const text = normalize([
+    label,
+    name,
+    id,
+    element.getAttribute("autocomplete") || "",
+    element.getAttribute("placeholder") || ""
+  ].join(" "));
 
-  return SENSITIVE_TERMS.some(term =>
-    new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")
-      .test(searchable)
-  );
+  return SENSITIVE_TERMS.some(term => {
+    const normalizedTerm = normalize(term);
+    return (` ${text} `).includes(` ${normalizedTerm} `);
+  });
 }
 
 export function detectFields(): DetectedField[] {
@@ -151,29 +132,29 @@ export function detectFields(): DetectedField[] {
     document.querySelectorAll("input, select, textarea")
   ).filter(isFormElement);
 
-  return elements.map((el, index) => {
-    const label = getLabel(el);
-    const name = el.getAttribute("name") || "";
-    const actualId = el.id || "";
+  return elements.map((element, index) => {
+    const label = getLabel(element);
+    const name = element.getAttribute("name") || "";
+    const id = element.id || name || `field-${index}`;
     const type =
-      el instanceof HTMLInputElement
-        ? el.type.toLowerCase()
-        : el.tagName.toLowerCase();
+      element instanceof HTMLInputElement
+        ? element.type.toLowerCase()
+        : element.tagName.toLowerCase();
 
     return {
-      id: actualId || name || `field-${index}`,
+      id,
       name,
       label,
       type,
-      sensitive: isSensitive(el, label, name, actualId)
+      sensitive: isSensitive(element, label, name, id, type)
     };
   });
 }
 
 function getQueryTerms(query: string): string[] {
-  let cleaned = normalize(query)
+  const cleaned = normalize(query)
     .replace(
-      /^(where is|where s|find|locate|highlight|spotlight|show me|which field is for)\s+/,
+      /^(where is|where's|find|locate|highlight|spotlight|show me|which field is for)\s+/,
       ""
     )
     .replace(
@@ -181,55 +162,42 @@ function getQueryTerms(query: string): string[] {
       ""
     )
     .replace(
-      /\b(the|field|input|box|please|where|do|i|enter|select|provide|fill|in|for)\b/g,
+      /\b(the|field|input|box|please|where|do|i|enter|select|provide|fill|type|in|for)\b/g,
       " "
     );
 
-  cleaned = normalize(cleaned);
+  const queryText = normalize(cleaned);
+  if (!queryText) return [];
 
-  if (!cleaned) return [];
-
-  return [...new Set(SYNONYMS[cleaned] || [cleaned])];
+  return (SYNONYMS[queryText] || [queryText]).map(normalize);
 }
 
-function scoreField(
-  field: DetectedField,
-  queryTerms: string[]
-): number {
-  const candidates = [
-    field.label,
-    field.name,
-    field.id
-  ].map(normalize).filter(Boolean);
-
-  if (!candidates.length) return 0;
+function scoreField(field: DetectedField, terms: string[]): number {
+  const candidates = [field.label, field.name, field.id]
+    .map(normalize)
+    .filter(Boolean);
 
   let best = 0;
 
-  for (const term of queryTerms) {
+  for (const term of terms) {
     for (const candidate of candidates) {
       if (candidate === term) {
         best = Math.max(best, 100);
-        continue;
-      }
-
-      // Permit phrase matches, but not arbitrary one-character matches.
-      if (
+      } else if (
         term.length >= 3 &&
         (candidate.includes(term) || term.includes(candidate))
       ) {
         best = Math.max(best, 85);
-        continue;
-      }
+      } else {
+        const words = term.split(" ").filter(Boolean);
+        const candidateWords = candidate.split(" ");
 
-      const words = term.split(" ").filter(word => word.length > 1);
-      const candidateWords = candidate.split(" ");
-
-      if (
-        words.length > 0 &&
-        words.every(word => candidateWords.includes(word))
-      ) {
-        best = Math.max(best, 75);
+        if (
+          words.length > 0 &&
+          words.every(word => candidateWords.includes(word))
+        ) {
+          best = Math.max(best, 75);
+        }
       }
     }
   }
@@ -237,15 +205,10 @@ function scoreField(
   return best;
 }
 
-/**
- * Keep the element reference internal to the content script.
- * Never send DOM elements or field values through extension messages.
- */
 export function findFieldMatch(
   query: string
 ): { field: DetectedField; element: HTMLElement } | null {
   const terms = getQueryTerms(query);
-
   if (!terms.length) return null;
 
   const elements = Array.from(
@@ -257,18 +220,18 @@ export function findFieldMatch(
     .map((element, index) => {
       const label = getLabel(element);
       const name = element.getAttribute("name") || "";
-      const actualId = element.id || "";
+      const id = element.id || name || `field-${index}`;
       const type =
         element instanceof HTMLInputElement
           ? element.type.toLowerCase()
           : element.tagName.toLowerCase();
 
       const field: DetectedField = {
-        id: actualId || name || `field-${index}`,
+        id,
         name,
         label,
         type,
-        sensitive: isSensitive(element, label, name, actualId)
+        sensitive: isSensitive(element, label, name, id, type)
       };
 
       return {
@@ -284,8 +247,7 @@ export function findFieldMatch(
 
   if (!best) return null;
 
-  // If the two strongest matches are equally plausible, ask the user
-  // to refine the request instead of highlighting a potentially wrong field.
+  // Don't arbitrarily choose between equally plausible fields.
   if (matches[1] && matches[1].score === best.score) {
     return null;
   }
@@ -297,5 +259,5 @@ export function findFieldMatch(
 }
 
 export function findField(query: string): DetectedField | null {
-  return findFieldMatch(query)?.field || null;
+  return findFieldMatch(query)?.field ?? null;
 }

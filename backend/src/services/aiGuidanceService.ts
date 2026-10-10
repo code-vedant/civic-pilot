@@ -4,7 +4,7 @@ import { generateWithOpenAI } from "./openai.service.js";
 
 const geminiKey = process.env.GEMINI_API_KEY;
 const geminiModel =
-  process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 const gemini = geminiKey
   ? new GoogleGenAI({ apiKey: geminiKey })
@@ -21,6 +21,8 @@ function buildPrompt(
   query: string,
   portal?: PortalContext
 ): string {
+
+
   return `
 You are CivicPilot, an assistant that helps citizens navigate
 Indian government portals.
@@ -68,6 +70,9 @@ async function generateWithGemini(
   if (!gemini) {
     throw new Error("Gemini is not configured");
   }
+
+  console.log("Runnnig" , prompt);
+  
 
   const response = await withTimeout(
     gemini.models.generateContent({
@@ -118,7 +123,7 @@ export async function generateGuidance(
   query: string,
   portal?: PortalContext
 ): Promise<string> {
-  const prompt = buildPrompt(query);
+  const prompt = buildPrompt(query, portal);
 
   // Provider 1: Gemini
   try {

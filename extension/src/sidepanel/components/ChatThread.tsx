@@ -2,18 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import type {
   CopilotPayload,
   CopilotResponse,
+  DetectedField,
   PortalContext,
   QueryIntent,
   TelemetryEvent,
 } from "../../utils/types";
-
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { LoaderCircle, Volume2, VolumeX } from "lucide-react";
+
+type SpotlightResponse = {
+  success: boolean;
+  field?: DetectedField;
+  reason?: string;
+};
 
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  spotlightQuery?: string;
 };
 
 type VoiceResponse = {
@@ -25,50 +33,95 @@ type VoiceResponse = {
 const id = () => crypto.randomUUID();
 
 const locationIntent =
-  /\b(where is|where's|find|locate|highlight|spotlight|show me|which field|where do i (?:enter|select|provide)|search(?: for)?\s+(?:the\s+)?(?:field|input|box))\b/i;
+  /\b(where is|where's|find|locate|highlight|spotlight|show me|which field|where to enter|where should i (?:enter|select|provide|fill)|where do i (?:enter|select|provide|fill)|search(?: for)?\s+(?:the\s+)?(?:field|input|box))\b/i;
 
 const sensitiveIntent =
   /\b(fill|enter|type|submit|bypass|solve|read|extract|handle|share)\b.{0,60}\b(otp|password|captcha|aadhaar otp|mpin|security pin|transaction pin)\b/i;
 
 function getTarget(query: string): string {
-  if (
-    /^search(?: for)?\s+(?:the\s+)?(?:field|input|box)$/i.test(query.trim())
-  ) {
-    return "search";
-  }
-
   return query
+    .trim()
+    .replace(/[?.!,]+$/g, "")
+    .replace(/^(?:hey\s+)?(?:civicpilot[:,]?\s*)?/i, "")
+    .replace(/^(?:please\s+)?/i, "")
     .replace(
-      /^(where is|where's|find|locate|highlight|spotlight|show me)\s+/i,
+      /^(?:show me where to|show me where|tell me where to|where should i|where do i|where to enter|find|locate|highlight|spotlight|where is|where's)\s*/i,
       ""
     )
-    .replace(/^which field is for\s+/i, "")
-    .replace(/^where do i (enter|select|provide)\s+/i, "")
-    .replace(/\b(the|fields?|inputs?|boxes|please)\b/gi, " ")
+    .replace(/^(?:enter|type|fill in|fill|provide|select|choose|input)\s+/i, "")
+    .replace(/^(?:the|a|an|my)\s+/i, "")
+    .replace(/^(?:field|input|textbox|text box)\s+(?:for\s+)?/i, "")
+    .replace(/\s+(?:field|input|textbox|text box)$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function sendToActiveTab(query: string): Promise<any> {
+function sendToActiveTab(query: string): Promise<SpotlightResponse> {
   return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-      const tabId = tabs[0]?.id;
+    const target = query.trim();
 
-      if (tabId == null) {
-        resolve({ success: false, reason: "no_active_tab" });
+    if (!target) {
+      resolve({
+        success: false,
+        reason: "empty_query",
+      });
+      return;
+    }
+
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        resolve({
+          success: false,
+          reason: "tab_query_failed",
+        });
+        return;
+      }
+
+      const tab = tabs[0];
+
+      if (tab?.id == null) {
+        resolve({
+          success: false,
+          reason: "no_active_tab",
+        });
+        return;
+      }
+
+      if (!/^https?:\/\//i.test(tab.url ?? "")) {
+        resolve({
+          success: false,
+          reason: "unsupported_page",
+        });
         return;
       }
 
       chrome.tabs.sendMessage(
-        tabId,
-        { type: "FIND_FIELD", query },
-        (response) => {
+        tab.id,
+        {
+          type: "FIND_FIELD",
+          query: target,
+        },
+        (response: SpotlightResponse | undefined) => {
           if (chrome.runtime.lastError) {
             resolve({
               success: false,
               reason: "content_script_unavailable",
             });
             return;
+          }
+
+          if (!response) {
+            resolve({
+              success: false,
+              reason: "content_script_unavailable",
+            });
+            return;
+          }
+
+          if (response.success) {
+            console.log("Field highlighted:", response.field);
+          } else {
+            console.log("Field not found:", response.reason);
           }
 
           resolve(response);
@@ -144,7 +197,7 @@ function requestCopilot(payload: CopilotPayload): Promise<CopilotResponse> {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage(
       { type: "COPILOT_REQUEST", payload },
-      (response) => {
+      (response: CopilotResponse | undefined) => {
         if (chrome.runtime.lastError) {
           resolve({
             success: false,
@@ -154,7 +207,7 @@ function requestCopilot(payload: CopilotPayload): Promise<CopilotResponse> {
         }
 
         resolve(
-          (response as CopilotResponse) || {
+          response || {
             success: false,
             error: "No response received from CivicPilot.",
           }
@@ -171,7 +224,7 @@ function requestVoice(text: string): Promise<VoiceResponse> {
         type: "VOICE_REQUEST",
         payload: { text },
       },
-      (response) => {
+      (response: VoiceResponse | undefined) => {
         if (chrome.runtime.lastError) {
           resolve({
             success: false,
@@ -211,8 +264,10 @@ export default function ChatThread() {
   const audioUrlRef = useRef<string | null>(null);
 
   function stopAudio() {
-    audioRef.current?.pause();
-    audioRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
 
     if (audioUrlRef.current) {
       URL.revokeObjectURL(audioUrlRef.current);
@@ -228,12 +283,15 @@ export default function ChatThread() {
     };
 
     refresh();
-
     chrome.tabs.onActivated.addListener(refresh);
 
     const onUpdated = (
       _tabId: number,
-      changeInfo: { status?: string; title?: string; url?: string },
+      changeInfo: {
+        status?: string;
+        title?: string;
+        url?: string;
+      },
       tab: chrome.tabs.Tab
     ) => {
       if (
@@ -256,6 +314,7 @@ export default function ChatThread() {
 
       if (audioUrlRef.current) {
         URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
       }
     };
   }, []);
@@ -315,7 +374,6 @@ export default function ChatThread() {
       };
 
       setSpeakingId(message.id);
-
       await audio.play();
     } catch (error) {
       stopAudio();
@@ -353,6 +411,7 @@ export default function ChatThread() {
     let actionType: string | undefined;
     let portalDomain: string | undefined;
     let answer = "";
+    let spotlightQuery: string | undefined;
 
     try {
       const activePortal = await getActivePortalContext();
@@ -376,20 +435,27 @@ export default function ChatThread() {
         } else {
           const result = await sendToActiveTab(target);
 
-          if (result?.success && result.field) {
+          if (result.success && result.field) {
             success = true;
             targetFieldId = result.field.id;
             targetFieldName = result.field.name || result.field.label;
             actionType = "spotlight";
+            spotlightQuery = target;
 
             answer = `I found the ${
               result.field.label || target
             } field and highlighted it.`;
-          } else if (result?.reason === "content_script_unavailable") {
+          } else if (result.reason === "content_script_unavailable") {
             answer =
-              "I couldn't access this page. Refresh the webpage and try again. Chrome's internal pages and the Chrome Web Store do not allow this extension to inspect them.";
-          } else if (result?.reason === "no_active_tab") {
+              "I couldn't communicate with this webpage. Refresh the webpage and try again. Make sure CivicPilot has site access.";
+          } else if (result.reason === "no_active_tab") {
             answer = "Open a webpage first, then ask me to locate a field.";
+          } else if (result.reason === "unsupported_page") {
+            answer =
+              "This page cannot be inspected. Open a regular HTTP or HTTPS webpage, not a Chrome internal page or the Chrome Web Store.";
+          } else if (result.reason === "tab_query_failed") {
+            answer =
+              "I couldn't identify the active tab. Focus the webpage and try again.";
           } else {
             answer = `I couldn't confidently find "${target}" on this page. Try the exact field label or check that the field is visible.`;
           }
@@ -405,31 +471,28 @@ export default function ChatThread() {
           });
 
           if (result.success && result.answer) {
-            console.log("[CivicPilot] Raw backend response:", result);
-            console.log("[CivicPilot] Answer length:", result.answer.length);
-            console.log(
-              "[CivicPilot] Last 100 characters:",
-              result.answer.slice(-100)
-            );
-          
             success = true;
             actionType = "guidance";
             answer = result.answer;
-          }
-
-          else {
+          } else {
             answer =
               result.error ||
               "AI guidance is temporarily unavailable. Please try again.";
           }
         }
       }
-    } catch {
+    } catch (error) {
+      console.error("CivicPilot request failed:", error);
       answer = "I couldn't process that request. Please try again.";
     } finally {
       setMessages((previous) => [
         ...previous,
-        { id: id(), role: "assistant", text: answer },
+        {
+          id: id(),
+          role: "assistant",
+          text: answer,
+          spotlightQuery,
+        },
       ]);
 
       const event: TelemetryEvent = {
@@ -443,13 +506,39 @@ export default function ChatThread() {
         portalDomain,
       };
 
-      chrome.runtime.sendMessage({
-        type: "QUEUE_TELEMETRY",
-        payload: event,
-      });
+      try {
+        chrome.runtime.sendMessage({
+          type: "QUEUE_TELEMETRY",
+          payload: event,
+        });
+      } catch {
+        // Telemetry must not interrupt chat.
+      }
 
       setLoading(false);
     }
+  }
+
+  async function repeatSpotlight(target: string) {
+    const result = await sendToActiveTab(target);
+
+    if (result.success) return;
+
+    const errorMessage =
+      result.reason === "content_script_unavailable"
+        ? "I couldn't communicate with this webpage. Refresh it and try again."
+        : result.reason === "unsupported_page"
+        ? "This page cannot be inspected. Open a regular webpage."
+        : "I couldn't highlight that field. Check that the form is still open and the field is visible.";
+
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: id(),
+        role: "assistant",
+        text: errorMessage,
+      },
+    ]);
   }
 
   return (
@@ -514,18 +603,43 @@ export default function ChatThread() {
             </div>
 
             {message.role === "assistant" && (
-              <button
-                type="button"
-                onClick={() => void listen(message)}
-                disabled={voiceLoadingId !== null}
-                className="mt-2 border border-neutral-300 px-2 py-1 text-[10px] hover:bg-neutral-100 disabled:opacity-50"
-              >
-                {voiceLoadingId === message.id
-                  ? "Generating audio…"
-                  : speakingId === message.id
-                  ? "Stop audio"
-                  : "Listen"}
-              </button>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {message.spotlightQuery && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void repeatSpotlight(message.spotlightQuery!)
+                    }
+                    className="border border-amber-500 bg-amber-50 px-3 py-1.5 text-[10px] font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    Show me where
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => void listen(message)}
+                  disabled={voiceLoadingId !== null}
+                  className="border border-neutral-300 px-2 py-1 text-[10px] hover:bg-neutral-100 disabled:opacity-50"
+                >
+                  {voiceLoadingId === message.id ? (
+                    <div className="flex items-center gap-1">
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                      <span>Generating audio…</span>
+                    </div>
+                  ) : speakingId === message.id ? (
+                    <div className="flex items-center gap-1">
+                      <VolumeX className="h-4 w-4" />
+                      <span>Stop audio</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <Volume2 className="h-4 w-4" />
+                      <span>Listen</span>
+                    </div>
+                  )}
+                </button>
+              </div>
             )}
           </div>
         ))}
@@ -536,7 +650,11 @@ export default function ChatThread() {
           </div>
         )}
 
-        {voiceError && <p className="text-[11px] text-red-600">{voiceError}</p>}
+        {voiceError && (
+          <p role="alert" className="text-[11px] text-red-600">
+            {voiceError}
+          </p>
+        )}
       </div>
 
       <form

@@ -1,45 +1,11 @@
-
-import { detectFields, findFieldMatch } from "../utils/field-detector";
+import { initSpotlightFeature } from "./spotlight";
+import { showAutofillPopup, dismissAutofillPopup } from "./autofill-popup";
+import { detectFields } from "../utils/field-detector";
 import "./overlay.css";
-import { dismissAutofillPopup, showAutofillPopup } from "./autofill-popup";
 
-let currentSpotlight: HTMLElement | null = null;
-let clearTimer: ReturnType<typeof setTimeout> | null = null;
+initSpotlightFeature();
 
-function clearSpotlight(): void {
-  if (currentSpotlight) {
-    currentSpotlight.classList.remove("civicpilot-spotlight");
-    currentSpotlight.removeAttribute("data-civicpilot-spotlight");
-    currentSpotlight = null;
-  }
-
-  if (clearTimer !== null) {
-    clearTimeout(clearTimer);
-    clearTimer = null;
-  }
-}
-
-function spotlight(element: HTMLElement): void {
-  clearSpotlight();
-
-  currentSpotlight = element;
-
-  element.setAttribute("data-civicpilot-spotlight", "true");
-  element.classList.add("civicpilot-spotlight");
-
-  element.scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-    inline: "nearest"
-  });
-
-  // Remove the visual highlight after 8 seconds.
-  clearTimer = setTimeout(() => {
-    clearSpotlight();
-  }, 8000);
-}
-
-function containsPotentialPersonalData(value: string): boolean {
+function containsSensitiveText(value: string): boolean {
   return (
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value) ||
     /\b\d{10,12}\b/.test(value)
@@ -48,31 +14,21 @@ function containsPotentialPersonalData(value: string): boolean {
 
 function cleanPageText(value: string, maxLength: number): string {
   const text = value.replace(/\s+/g, " ").trim();
-
-  if (!text || containsPotentialPersonalData(text)) {
-    return "";
-  }
-
+  if (!text || containsSensitiveText(text)) return "";
   return text.slice(0, maxLength);
 }
 
 function getPageContext() {
   const headings = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      "h1, h2, h3, [role='heading']"
-    )
+    document.querySelectorAll<HTMLElement>("h1, h2, h3, [role='heading']")
   )
     .filter(element => element.getClientRects().length > 0)
     .map(element =>
-      cleanPageText(
-        element.innerText || element.textContent || "",
-        120
-      )
+      cleanPageText(element.innerText || element.textContent || "", 120)
     )
     .filter(Boolean)
     .slice(0, 8);
 
-  // Return field labels only, never entered field values.
   const fieldLabels = detectFields()
     .filter(field => !field.sensitive)
     .map(field => cleanPageText(field.label, 100))
@@ -86,200 +42,140 @@ function getPageContext() {
   };
 }
 
-chrome.runtime.onMessage.addListener(
-  (message, _sender, sendResponse) => {
-    if (message?.type === "GET_PAGE_CONTEXT") {
-      sendResponse({
-        success: true,
-        context: getPageContext()
-      });
+function getAutofillLabel(
+  element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+): string {
+  const nativeLabels = element.labels
+    ? Array.from(element.labels)
+        .map(label => label.innerText || label.textContent || "")
+        .join(" ")
+        .trim()
+    : "";
 
-      return;
-    }
+  if (nativeLabels) return nativeLabels;
 
-    if (message?.type === "GET_FIELDS") {
-      sendResponse({
-        success: true,
-        fields: detectFields().filter(field => !field.sensitive)
-      });
-
-      return;
-    }
-
-    if (message?.type === "CLEAR_SPOTLIGHT") {
-      clearSpotlight();
-      sendResponse({ success: true });
-
-      return;
-    }
-
-    if (
-      message?.type === "FIND_FIELD" &&
-      typeof message.query === "string"
-    ) {
-      const query = message.query.trim();
-
-      if (!query || query.length > 150) {
-        sendResponse({
-          success: false,
-          reason: "invalid_query"
-        });
-
-        return;
-      }
-
-      const match = findFieldMatch(query);
-
-      if (!match) {
-        sendResponse({
-          success: false,
-          reason: "field_not_found"
-        });
-
-        return;
-      }
-
-      spotlight(match.element);
-
-      sendResponse({
-        success: true,
-        field: match.field
-      });
-    }
+  const labelledBy = element.getAttribute("aria-labelledby");
+  if (labelledBy) {
+    const text = labelledBy
+      .split(/\s+/)
+      .map(id => document.getElementById(id)?.textContent || "")
+      .join(" ")
+      .trim();
+    if (text) return text;
   }
-);
-
-
-const blockedAutofillTerms = [
-  "password",
-  "passwd",
-  "passcode",
-  "otp",
-  "captcha",
-  "mpin",
-  "security pin",
-  "transaction pin",
-  "aadhaar number",
-  "aadhar number"
-];
-
-function isBlockedAutofillField(
-  field: { id: string; name: string; label: string; type: string }
-): boolean {
-  const metadata = `${field.id} ${field.name} ${field.label}`
-    .toLowerCase()
-    .replace(/[_-]+/g, " ");
 
   return (
-    ["password", "hidden", "file", "submit", "button", "image"]
-      .includes(field.type.toLowerCase()) ||
-    blockedAutofillTerms.some(term => metadata.includes(term))
-  );
+    element.getAttribute("aria-label") ||
+    element.getAttribute("placeholder") ||
+    element.getAttribute("name") ||
+    element.id ||
+    ""
+  ).trim();
 }
 
-function requestAutofillMatch(
-  target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
-  field: {
-    id: string;
-    name: string;
-    label: string;
-    type: string;
-  }
-) {
-  chrome.runtime.sendMessage(
-    {
-      type: "GET_AUTOFILL_MATCH",
-      field
-    },
-    response => {
-      if (chrome.runtime.lastError) return;
-      if (!response?.success || !response.match) return;
+const blockedTerms = [
+  "password", "passwd", "passcode", "otp", "one time password",
+  "captcha", "mpin", "security pin", "transaction pin",
+  "aadhaar", "aadhar", "secret code"
+];
 
-      const active = document.activeElement;
-
-      if (
-        !(active instanceof HTMLInputElement) &&
-        !(active instanceof HTMLSelectElement) &&
-        !(active instanceof HTMLTextAreaElement)
-      ) {
-        return;
-      }
-
-      // Ensure the suggestion still belongs to the focused element.
-      const activeField = detectFields().find(
-        item =>
-          item.id === (active.id || active.getAttribute("name") || "") ||
-          (item.name !== "" && item.name === active.getAttribute("name"))
-      );
-
-      if (
-        document.activeElement !== target ||
-        !target.isConnected
-      ) {
-        return;
-      }
-      
-      showAutofillPopup(target, response.match);
-    }
-  );
-}
-
-document.addEventListener(
-  "focusin",
-  event => {
-    const target = event.target;
-
-    if (
-      !(target instanceof HTMLInputElement) &&
-      !(target instanceof HTMLSelectElement) &&
-      !(target instanceof HTMLTextAreaElement)
-    ) {
-      return;
-    }
-
-    dismissAutofillPopup();
-
-    const elements = Array.from(
-      document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-        "input, select, textarea"
-      )
-    );
-
-    const index = elements.indexOf(target);
-    if (index < 0) return;
-
-    const field = detectFields()[index];
-
-    if (!field || field.sensitive || isBlockedAutofillField(field)) {
-      return;
-    }
-
-    requestAutofillMatch(
-      target,
-      {
-        id: target.id || field.id,
-        name: target.getAttribute("name") || "",
-        label: field.label,
-        type: field.type
-      }
-    );
-  },
-  true
-);
-
-document.addEventListener("keydown", event => {
-  if (event.key === "Escape") {
-    dismissAutofillPopup();
-  }
-});
-
-document.addEventListener("click", event => {
-  const target = event.target;
+function isSensitiveField(
+  element: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+  label: string
+): boolean {
+  const type = element instanceof HTMLInputElement
+    ? element.type.toLowerCase()
+    : element.tagName.toLowerCase();
 
   if (
+    ["password", "hidden", "file", "submit", "reset", "button", "image"]
+      .includes(type)
+  ) return true;
+
+  const haystack = [
+    label,
+    element.getAttribute("name") || "",
+    element.id,
+    element.getAttribute("autocomplete") || ""
+  ].join(" ").toLowerCase();
+
+  return blockedTerms.some(term => haystack.includes(term));
+}
+
+type FormControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+function handleFocusIn(event: FocusEvent): void {
+  const target = event.target;
+  if (
+    !(target instanceof HTMLInputElement) &&
+    !(target instanceof HTMLSelectElement) &&
+    !(target instanceof HTMLTextAreaElement)
+  ) return;
+
+  dismissAutofillPopup();
+
+  if (
+    !target.isConnected ||
+    target.disabled ||
+    target.readOnly ||
+    (target instanceof HTMLInputElement &&
+      ["checkbox", "radio", "password", "hidden", "file", "submit", "reset", "button", "image"]
+        .includes(target.type.toLowerCase()))
+  ) return;
+
+  const label = getAutofillLabel(target);
+  if (!label || isSensitiveField(target, label)) return;
+
+  const field: FormControl = target;
+  const request = {
+    type: "GET_AUTOFILL_MATCH",
+    field: {
+      id: field.id || "",
+      name: field.getAttribute("name") || "",
+      label,
+      type: field instanceof HTMLInputElement
+        ? field.type.toLowerCase()
+        : field.tagName.toLowerCase()
+    }
+  };
+
+  chrome.runtime.sendMessage(request, response => {
+    // Reading lastError prevents Chrome from reporting an unchecked messaging error.
+    if (chrome.runtime.lastError) return;
+
+    if (
+      !response?.success ||
+      !response.match ||
+      !field.isConnected ||
+      document.activeElement !== field
+    ) return;
+
+    showAutofillPopup(field, response.match);
+  });
+}
+
+document.addEventListener("focusin", handleFocusIn, true);
+document.addEventListener("pointerdown", event => {
+  const target = event.target;
+  if (
     target instanceof Element &&
-    !target.closest(".civicpilot-autofill-popup")
+    !target.closest(".civicpilot-autofill-popup") &&
+    !target.matches("input, select, textarea")
   ) {
     dismissAutofillPopup();
+  }
+}, true);
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "GET_PAGE_CONTEXT") {
+    sendResponse({ success: true, context: getPageContext() });
+    return;
+  }
+
+  if (message?.type === "GET_FIELDS") {
+    sendResponse({
+      success: true,
+      fields: detectFields().filter(field => !field.sensitive)
+    });
   }
 });

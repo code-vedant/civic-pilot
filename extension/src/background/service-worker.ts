@@ -13,6 +13,50 @@ import { createClerkClient } from "@clerk/chrome-extension/client";
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 
+interface ActivePageContext {
+  domain: string;
+  title: string;
+  headings: string[];
+  fieldLabels: string[];
+}
+
+async function getActivePageContext(): Promise<ActivePageContext | null> {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    });
+
+    if (!tab?.id || !tab.url) return null;
+
+    const url = new URL(tab.url);
+
+    // Only collect context from ordinary webpages.
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    const response = await chrome.tabs
+      .sendMessage(tab.id, { type: "GET_PAGE_CONTEXT" })
+      .catch(() => null);
+
+    const context = response?.success ? response.context : null;
+
+    return {
+      domain: url.hostname,
+      title: context?.title || tab.title || url.hostname,
+      headings: Array.isArray(context?.headings)
+        ? context.headings
+        : [],
+      fieldLabels: Array.isArray(context?.fieldLabels)
+        ? context.fieldLabels
+        : [],
+    };
+  } catch {
+    // Page context is optional; don't break ordinary chat.
+    return null;
+  }
+}
 
 async function getToken(): Promise<string | null> {
   if (!publishableKey) return null;
@@ -374,11 +418,47 @@ chrome.runtime.onMessage.addListener(
         }
 
         if (message.type === "COPILOT_REQUEST") {
-          const result = await sendCopilotRequest(
-            token,
-            message.payload as CopilotPayload
-          );
+          const pageContext = await getActivePageContext();
+        
+          const original = message.payload as CopilotPayload & {
+            portal?: {
+              domain?: string;
+              title?: string;
+              pageContext?: {
+                headings?: string[];
+                fieldLabels?: string[];
+              };
+            };
+          };
+        
+          const existingPortal = original.portal;
+        
+          const payload = {
+            ...original,
+            portal: {
+              ...existingPortal,
+              domain:
+                pageContext?.domain ||
+                existingPortal?.domain ||
+                "unknown",
+              title:
+                pageContext?.title ||
+                existingPortal?.title ||
+                pageContext?.domain ||
+                "Unknown website",
+              pageContext: {
+                ...existingPortal?.pageContext,
+                headings: pageContext?.headings ?? [],
+                fieldLabels: pageContext?.fieldLabels ?? [],
+              },
+            },
+          } as CopilotPayload;
 
+          console.log("Sending Copilot request with payload:", payload);
+          
+        
+          const result = await sendCopilotRequest(token, payload);
+        
           sendResponse(result);
           return;
         }
